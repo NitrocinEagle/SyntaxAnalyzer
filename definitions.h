@@ -21,7 +21,7 @@ const char KEY_WORDS[NUMB_KW][LENGTH_KW] =
 };
 enum LexemType
 {
-    lexVar, lexTools, lexStart, lexStop, lexSkip, lexSpace, lexTab, lexBreak, lexGoto, lexRead, lexWrite, lexIf, lexThen, lexElse, lexWhile, lexCast, lexInt, lexReal, lexMod, lexMinus, lexMult, lexDiv, lexPlus, lexLet, lexEQ, lexNE, lexLT, lexGT, lexLE, lexGE, lexDo, lexEnd ,lexProc, lexLabel, lexSemicolon, lexComma, lexLRB, lexRRB, lexLSB, lexRSB, lexId
+    lexVar, lexTools, lexStart, lexStop, lexSkip, lexSpace, lexTab, lexBreak, lexGoto, lexRead, lexWrite, lexIf, lexThen, lexElse, lexWhile, lexCast, lexInt, lexReal, lexMod, lexMinus, lexMult, lexDiv, lexPlus, lexLet, lexEQ, lexNE, lexLT, lexGT, lexLE, lexGE, lexDo, lexEnd ,lexProc, lexLabel, lexSemicolon, lexComma, lexLRB, lexRRB, lexLSB, lexRSB, lexId, lexEOF
 };
 
 const char LEXEM_TYPES_ID[NUMB_LEXEM_TYPES][LENGTH_LEXEM_TYPE] =
