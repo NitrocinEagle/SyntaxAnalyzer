@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <vector>
+#include "tinyxml/tinyxml.h"
 
 #include "definitions.h"
 
@@ -84,6 +85,10 @@ private:
     char lexem[LENGTH_LEXEM];
     bool _isEOF;
 
+    TiXmlDocument doc;
+    TiXmlDeclaration* decl;
+    TiXmlElement* program;
+
     std::vector <Identifier> identifiers;
     Identifier id;
 
@@ -91,25 +96,27 @@ private:
     bool inline isLetter(int ch);
     void printTeg();
 
-    void definitions();
+    void definitions(TiXmlNode* node);
     void tools();
     void programm();
     int readId();
     void handleIDs();
 
-    void composite(int level);//$ составной = "start" оператор { ";" оператор } "stop".
-    void opRead(); //$ ввода = read переменная { "," переменная }.
-    void opWrite(); //$ вывода = write ( выражение | спецификатор ) { "," ( выражение | спецификатор ) }.
-    void opGoto(); //goto имя_метки.
-    void opIf(); //$ условный = if выражение then непомеченный [ else непомеченный ].
-    void opWhile(); //$ цикла = while выражение do оператор { ";" оператор } end.
+    void composite(TiXmlNode* node);//$ составной = "start" оператор { ";" оператор } "stop".
+    void opRead(TiXmlNode* node); //$ ввода = read переменная { "," переменная }.
+    void opWrite(TiXmlNode* node); //$ вывода = write ( выражение | спецификатор ) { "," ( выражение | спецификатор ) }.
+    void opGoto(TiXmlNode* node); //goto имя_метки.
+    void opIf(TiXmlNode* node); //$ условный = if выражение then непомеченный [ else непомеченный ].
+    void opWhile(TiXmlNode* node); //$ цикла = while выражение do оператор { ";" оператор } end.
     void opCallProc(); //$ вызов = идентификатор "(" [ переменная { "," переменная } ] ")".
     void opCast(); //$ приведение = "(" переменная переменная cast ")".
     void opLet(); //$ присваивание = "(" выражение переменная "let" ")".
     void expression(int level); //$ выражение = "(" операнд операнд операция ")" | "(" операнд "minus" ")" | операнд .
     void operand(); //$ операнд = выражение | переменная | целое | действительное.
-
-
+    void opCall(TiXmlNode* node); //$ вызов = идентификатор "(" [ переменная { "," переменная } ] ")".
+    void opBreak(TiXmlNode* node);
+    void unmarked(TiXmlNode* node);
+    void unset();
 
 public:
     bool openFiles(int argc, char** argv);
