@@ -15,6 +15,16 @@ public:
 void toZero();
 };
 
+struct Lexeme {
+public:
+    LexemType lexemType;
+    int dValue;
+    float fValue;
+    char valueType[5];
+    char lexem[LENGTH_LEXEM];
+void setAll(LexemType _lexemType, char _lexem[LENGTH_LEXEM], int _dValue, float _fValue);
+};
+
 class Scaner
 {
 private:
@@ -107,16 +117,17 @@ private:
     void opWrite(TiXmlNode* node); //$ вывода = write ( выражение | спецификатор ) { "," ( выражение | спецификатор ) }.
     void opGoto(TiXmlNode* node); //goto имя_метки.
     void opIf(TiXmlNode* node); //$ условный = if выражение then непомеченный [ else непомеченный ].
-    void opWhile(TiXmlNode* node); //$ цикла = while выражение do оператор { ";" оператор } end.
-    void opCallProc(); //$ вызов = идентификатор "(" [ переменная { "," переменная } ] ")".
-    void opCast(); //$ приведение = "(" переменная переменная cast ")".
-    void opLet(); //$ присваивание = "(" выражение переменная "let" ")".
-    void expression(int level); //$ выражение = "(" операнд операнд операция ")" | "(" операнд "minus" ")" | операнд .
+    void opWhile(TiXmlNode* node); //$ цикла = while выражение do оператор { ";" оператор } end.    
+    bool opCast(std::vector<Lexeme>* lexs, TiXmlNode* node); //$ приведение = "(" переменная переменная cast ")".
+    bool opAssign(std::vector<Lexeme>* lexs, TiXmlNode* node); //$ присваивание = "(" выражение переменная "let" ")".
+    void expression(TiXmlNode* node); //$ выражение = "(" операнд операнд операция ")" | "(" операнд "minus" ")" | операнд .
     void operand(); //$ операнд = выражение | переменная | целое | действительное.
     void opCall(TiXmlNode* node); //$ вызов = идентификатор "(" [ переменная { "," переменная } ] ")".
     void opBreak(TiXmlNode* node);
     void unmarked(TiXmlNode* node);
-    void unset();
+    void label(TiXmlNode* node);
+    void assignOrCast(TiXmlNode* node);
+    void parseSetPush(std::vector<Lexeme>* lexs, Lexeme _lex);
 
 public:
     bool openFiles(int argc, char** argv);
