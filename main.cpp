@@ -1,4 +1,4 @@
-#include "scaner.cpp"
+#include "scaner.h"
 
 int main(int argc, char** argv)
 {
