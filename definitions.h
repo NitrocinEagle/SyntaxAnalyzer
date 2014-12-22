@@ -1,15 +1,18 @@
-extern const int LENGTH_KW = 20;
-extern const int NUMB_KW = 33;
-extern const int NUMB_LEXEM_TYPES = 41;
-extern const int LENGTH_LEXEM_TYPE = 10;
-extern const int LENGTH_LEXEM = 50;
+#ifndef DEFINITIONS_H
+#define DEFINITIONS_H
 
-extern const int ERROR_UNRECOGNIZABLE_LEXEM = 1;
-extern const int ERROR_WRONG_BASE = 2;
-extern const int ERROR_WRONG_INT_NUMBER = 3;
-extern const int ERROR_WRONG_FORMAT_REAL_NUMBER = 4;
-extern const int ERROR_UNFINISHED_COMMENT= 5;
-extern const int ERROR_OVERFLOW_REAL_TYPE= 6;
+const int LENGTH_KW = 20;
+const int NUMB_KW = 33;
+const int NUMB_LEXEM_TYPES = 41;
+const int LENGTH_LEXEM_TYPE = 10;
+const int LENGTH_LEXEM = 50;
+
+const int ERROR_UNRECOGNIZABLE_LEXEM = 1;
+const int ERROR_WRONG_BASE = 2;
+const int ERROR_WRONG_INT_NUMBER = 3;
+const int ERROR_WRONG_FORMAT_REAL_NUMBER = 4;
+const int ERROR_UNFINISHED_COMMENT= 5;
+const int ERROR_OVERFLOW_REAL_TYPE= 6;
 
 const char KEY_WORDS_ID[NUMB_KW][LENGTH_KW] =
 {
@@ -32,3 +35,5 @@ const LexemType LEXEM_TYPES[NUMB_LEXEM_TYPES] =
 {
     lexVar, lexTools, lexStart, lexStop, lexSkip, lexSpace, lexTab, lexBreak, lexGoto, lexRead, lexWrite, lexIf, lexThen, lexElse, lexWhile, lexCast, lexInt, lexReal, lexMod, lexMinus, lexMult, lexDiv, lexPlus, lexLet, lexEQ, lexNE, lexLT, lexGT, lexLE, lexGE, lexDo, lexEnd ,lexProc, lexLabel, lexSemicolon, lexComma, lexLRB, lexRRB, lexLSB, lexRSB, lexId
 };
+
+#endif // DEFINITIONS_H
