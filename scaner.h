@@ -1,10 +1,8 @@
-#include <stdio.h>
-#include <string>
-#include <string.h>
-#include <stdlib.h>
+#ifndef SCANER_H
+#define SCANER_H
+
 #include <vector>
 #include "tinyxml/tinyxml.h"
-
 #include "definitions.h"
 
 struct Identifier {
@@ -13,16 +11,6 @@ public:
     int length;
     char nameID[LENGTH_LEXEM];
 void toZero();
-};
-
-struct Lexeme {
-public:
-    LexemType lexemType;
-    int dValue;
-    float fValue;
-    char valueType[5];
-    char lexem[LENGTH_LEXEM];
-void setAll(LexemType _lexemType, char _lexem[LENGTH_LEXEM], int _dValue, float _fValue);
 };
 
 class Scaner
@@ -87,13 +75,18 @@ private:
     FILE *input,
         *lexemList,
         *parseTree;
-    int line, codeLineWrap, indexLexemTypeId;
+    int line,
+        codeLineWrap,
+        indexLexemTypeId,
+        lineWithError;
     LexemType lexemType;
-    char valueType[4];
+    char valueType[4],
+         whatIsExpected[100];
     int dValue;
     float fValue;
     char lexem[LENGTH_LEXEM];
-    bool _isEOF;
+    bool _isEOF,
+          isAvaibleForBreak;
 
     TiXmlDocument doc;
     TiXmlDeclaration* decl;
@@ -106,28 +99,23 @@ private:
     bool inline isLetter(int ch);
     void printTeg();
 
-    void definitions(TiXmlNode* node);
-    void tools();
-    void programm();
+    bool definitions(TiXmlNode* node);
+    bool tools();
     int readId();
-    void handleIDs();
+    bool handleIDs();
 
-    void composite(TiXmlNode* node);//$ составной = "start" оператор { ";" оператор } "stop".
-    void opRead(TiXmlNode* node); //$ ввода = read переменная { "," переменная }.
-    void opWrite(TiXmlNode* node); //$ вывода = write ( выражение | спецификатор ) { "," ( выражение | спецификатор ) }.
-    void opGoto(TiXmlNode* node); //goto имя_метки.
-    void opIf(TiXmlNode* node); //$ условный = if выражение then непомеченный [ else непомеченный ].
-    void opWhile(TiXmlNode* node); //$ цикла = while выражение do оператор { ";" оператор } end.    
-    bool opCast(std::vector<Lexeme>* lexs, TiXmlNode* node); //$ приведение = "(" переменная переменная cast ")".
-    bool opAssign(std::vector<Lexeme>* lexs, TiXmlNode* node); //$ присваивание = "(" выражение переменная "let" ")".
-    void expression(TiXmlNode* node); //$ выражение = "(" операнд операнд операция ")" | "(" операнд "minus" ")" | операнд .
-    void operand(); //$ операнд = выражение | переменная | целое | действительное.
-    void opCall(TiXmlNode* node); //$ вызов = идентификатор "(" [ переменная { "," переменная } ] ")".
+    bool composite(TiXmlNode* node);//$ составной = "start" оператор { ";" оператор } "stop".
+    bool opRead(TiXmlNode* node); //$ ввода = read переменная { "," переменная }.
+    bool opWrite(TiXmlNode* node); //$ вывода = write ( выражение | спецификатор ) { "," ( выражение | спецификатор ) }.
+    bool opGoto(TiXmlNode* node); //goto имя_метки.
+    bool opIf(TiXmlNode* node); //$ условный = if выражение then непомеченный [ else непомеченный ].
+    bool opWhile(TiXmlNode* node); //$ цикла = while выражение do оператор { ";" оператор } end.
+    bool expression(TiXmlNode* node); //$ выражение = "(" операнд операнд операция ")" | "(" операнд "minus" ")" | операнд .
+    bool opCall(TiXmlNode* node); //$ вызов = идентификатор "(" [ переменная { "," переменная } ] ")".
     void opBreak(TiXmlNode* node);
-    void unmarked(TiXmlNode* node);
+    bool unmarked(TiXmlNode* node);
     void label(TiXmlNode* node);
-    void assignOrCast(TiXmlNode* node);
-    void parseSetPush(std::vector<Lexeme>* lexs, Lexeme _lex);
+    bool assignOrCast(TiXmlNode* node);
 
 public:
     bool openFiles(int argc, char** argv);
@@ -136,3 +124,4 @@ public:
     void closeFiles();
 };
 
+#endif // SCANER_H
