@@ -1,5 +1,11 @@
 #include "scaner.h"
+#include "definitions.h"
+#include <stdio.h>
+#include <string>
+#include <string.h>
+#include <stdlib.h>
 #include <cfloat>
+
 Scaner::Scaner()
 {
     line = 1;
@@ -87,8 +93,6 @@ void Scaner::comment()
         if (feof(input))
         {
             _isEOF = true;
-            if (!wasError)
-                printf("OK");
             return;
         }
     } while (true);
@@ -335,8 +339,8 @@ startRecognizeNextLexem:
     if (feof(input))
     {
         _isEOF = true;
-        if (!wasError)
-            printf("OK");
+        //if (!wasError)
+          //  printf("OK");
         return;
     }
     else if (isLetter(ch)) { kWOrId(); }
@@ -452,6 +456,7 @@ bool Parser::openFiles(int argc, char** argv)
     }
     codeLineWrap = (int)'\n';
     _isEOF = false;
+    isAvaibleForBreak = false;
     return true;
 }
 void Parser::parseLine() //<line>\tlex:<LexemType>[\t<ValueType>:<Value>]\tval:<Lexem>
@@ -520,13 +525,11 @@ void Parser::parseLine() //<line>\tlex:<LexemType>[\t<ValueType>:<Value>]\tval:<
         while (ch != codeLineWrap);
     }
 }
-
 void Parser::closeFiles()
 {
     fclose(lexemList);
     fclose(parseTree);
 }
-
 void Parser::makeXMLTree()
 {
     decl = new TiXmlDeclaration("1.0", "", "");
@@ -535,24 +538,61 @@ void Parser::makeXMLTree()
     doc.LinkEndChild(program);
 
     parseLine();
+    lineWithError = line;
     if (lexemType == lexVar)
     {
-        definitions(program);
+        parseLine();
+        lineWithError = line;
+        if (!definitions(program))
+        {
+            printf("Error: %d: Expected %s", lineWithError, whatIsExpected);
+            return;
+        }
         if (lexemType == lexTools)
-            tools();
+            if (!tools())
+            {
+                printf("Error: %d: Expected %s", lineWithError, whatIsExpected);
+                return;
+            }
     }
     else if (lexemType == lexTools)
-        tools();
-    programm();
-
+    {
+        if (!tools())
+        {
+            printf("Error: %d: Expected %s", lineWithError, whatIsExpected);
+            return;
+        }
+    }
+    else if (lexemType != lexStart)
+    {
+        if (lexemType == lexReal || lexemType == lexInt)
+            printf("Error: %d: Expected \"var\"", lineWithError);
+        else if (lexemType == lexProc)
+            printf("Error: %d: Expected \"tools\"", lineWithError);
+        else
+            printf("Error: %d: Expected \"Start\"", lineWithError);
+        return;
+    }
+    if (lexemType != lexStart)
+    {
+        lineWithError = line;
+        printf("Error: %d: Expected \"start\"", lineWithError);
+        return;
+    }
+    if (!composite(program))
+    {
+        printf("Error: %d: Expected %s", lineWithError, whatIsExpected);
+        return;
+    }
+    printf("OK");
     TiXmlText* text = new TiXmlText("");
     program->LinkEndChild(text);
-    doc.SaveFile("madeByHand2.xml");
+    doc.SaveFile(parseTree);
 }
-
-void Parser::definitions(TiXmlNode* node) //lexemType = lexVar
-{
-    while (true) //Обрабатываем каждую строку с объявлением переменных до тех пор, пока не встретим блок программы, либо блок описания процедур
+bool Parser::definitions(TiXmlNode* node)
+{  //lexemType = lexVar
+    bool isThereNewDefinition = true;
+    while (true) //Handle every line with definate while we meet block of programm or tools block
     {
         id.toZero();
         identifiers.clear();
@@ -563,7 +603,11 @@ void Parser::definitions(TiXmlNode* node) //lexemType = lexVar
             if (lexemType == lexReal)
                 strcpy(type, "real");
             strcpy(id.valueType, type);
-            handleIDs();   //функция, обрабатывающая строку переменных(ой)
+            if (!handleIDs())   //The function handle line with definites
+            {
+                //printf("\nError: %d: Excepted %s", lineWithError, whatIsExpected);
+                return false;
+            }
             std::vector<Identifier>::iterator it = identifiers.begin();
             if (identifiers.size() == 1)
             {
@@ -591,13 +635,31 @@ void Parser::definitions(TiXmlNode* node) //lexemType = lexVar
                 dfn->LinkEndChild(text);
             }
         }
+        else if (!isThereNewDefinition)
+        {
+            strcpy(whatIsExpected, "new definition");
+            return false;
+        }
         if (lexemType == lexTools || lexemType == lexStart || lexemType == lexEOF)
             break;
-        parseLine();
+        if (lexemType == lexInt || lexemType == lexReal)
+        {
+            strcpy(whatIsExpected, ";");
+            return false;
+        }
+        if (lexemType == lexSemicolon)
+        {
+            isThereNewDefinition = false;
+            parseLine();
+            if (lexemType == lexInt || lexemType == lexReal)
+                isThereNewDefinition = true;
+            continue;
+        }
+        parseLine(); // Except
     }
+    return true;
 }
-
-void Parser::handleIDs() //lexemType = lexInt
+bool Parser::handleIDs() //lexemType = lexInt
 {
     do /* Считыаем переменную за переменной, занося информацию о ней в список, до тех пор,
     пока не наткнемся на блок описание процедур, блок программы или блок объявления следующих переменных */
@@ -607,23 +669,40 @@ void Parser::handleIDs() //lexemType = lexInt
         id.length = 0;
         switch(codeLexemAfterID)
         {
-        case 0: return;
+        case 0: return true;
         case 1: break;
         case 2: break;
-        case 3: return; //a[2];
-        case 4: return; //a;
-        case 5: return; //a[2] tools | a[2] start
-        case 6: return; //a tools | a start
+        case 3: return true; //a[2];
+        case 4: return true; //a;
+        case 5: return true; //a[2] tools | a[2] start
+        case 6: return true; //a tools | a start
+        case 42: return false;
+        default:
+        {
+            strcpy(whatIsExpected, "\"Tools\" or \"Start\"\0");
+            return false;
+        }
         }
     }
     while (lexemType != lexTools && lexemType != lexStart);
 }
-
-int Parser::readId()
+ int Parser::readId()
 {
-    parseLine(); // Считылм идентификатор
-    strcpy(id.nameID, lexem); //запись nameID в узел списка
-    parseLine();
+    lineWithError = line;
+    parseLine(); // lexId
+    if (lexemType != lexId)
+    {
+        strcpy(whatIsExpected, "Identifier");
+        return 42;
+    }
+    strcpy(id.nameID, lexem);
+    parseLine(); //Excepted lexComma, lexSemicolon, lexTools, lexLSB, lexStart
+    if (lexemType == lexInt || lexemType == lexReal)
+    {
+        strcpy(whatIsExpected, ";");
+        return 42;
+    }
+    lineWithError = line;
     if (lexemType == lexComma)
         return 2;   //считан просто идентификатор. После него запятая. a,
     else if (lexemType == lexSemicolon)
@@ -634,135 +713,245 @@ int Parser::readId()
         return 0;
     else if (lexemType == lexLSB)
     {
-        parseLine();    // считали length
+        parseLine();    //lexInt
+        lineWithError = line;
+        if (lexemType != lexInt)
+        {
+            strcpy(whatIsExpected, "int number as an element of array\0");
+            return 42;
+        }
+        else if (dValue <= 0 || dValue >= 100)
+        {
+            strcpy(whatIsExpected, "number more than 0 and less than 100");
+            return 42;
+        }
         id.length = dValue; //запись length в узел списка
         parseLine(); // считвли RSB
-        parseLine(); //считали дексему после идентификатора
+        if (lexemType != lexRSB)
+        {
+            strcpy(whatIsExpected, "right square braket\0");
+            return 42;
+        }
+        lineWithError = line;
+        parseLine(); //считали лексему после идентификатора
+        lineWithError = line;
         if (lexemType == lexComma)
             return 1;   //Считан массив. После него запятая. a[2],
         else if (lexemType == lexSemicolon)
             return 3;    //Считан массив. После него точка с запятой. a[2];
         else if (lexemType == lexTools || lexemType == lexStart || lexemType == lexInt || lexemType == lexReal)
             return 5;   //Считан массив. После него tools, start, int или real. a[2] tools | a[2] start | a[2] int | a[2] real
+        else
+        {
+            strcpy(whatIsExpected, "\",\" or \";\" or \"tools\" or \"[\" or \"start\"");
+            return 42;
+        }
+    }
+    else
+    {
+        strcpy(whatIsExpected, "\",\" or \";\" or \"tools\" or \"[\" or \"start\"");
+        return 42;
     }
 }
-
-void Parser::tools() //lexemType = lexTools
+bool Parser::tools() //lexemType = lexTools
 {
     do
     {
         TiXmlElement* proc = new TiXmlElement("proc");
-        program->LinkEndChild(proc); 
+        program->LinkEndChild(proc);
         parseLine(); //считали лексему proc
+        lineWithError = line;
+        if (lexemType != lexProc)
+        {
+            strcpy(whatIsExpected, "\"proc\"");
+            return false;
+        }
+        lineWithError = line;
         parseLine(); //считали идентификатор
+        if (lexemType != lexId)
+        {
+            strcpy(whatIsExpected, "\"identifier\"");
+            return false;
+        }
         proc->SetAttribute("name", lexem);
         parseLine();
+        lineWithError = line;
         if (lexemType == lexStart)
         {
             TiXmlElement* compound = new TiXmlElement("compound");
             proc->LinkEndChild(compound);
-            composite(compound);
+            if (!composite(compound))
+                return false;
             TiXmlText* text = new TiXmlText("");
             compound->LinkEndChild(text);
         }
         else if (lexemType == lexInt || lexemType == lexReal)
         {
-            definitions(proc);
+            if (!definitions(proc))
+                return false;
             TiXmlElement* compound = new TiXmlElement("compound");
             proc->LinkEndChild(compound);
-            composite(compound);
+            if (!composite(compound))
+                return false;
             TiXmlText* text = new TiXmlText("");
             compound->LinkEndChild(text);
         }
-        parseLine();
-        if (lexemType != lexSemicolon)
-            break;
+        else
+        {
+            strcpy(whatIsExpected, "\"start\" or \"definitions\"");
+            return false;
+        }
         TiXmlText* text = new TiXmlText("");
         proc->LinkEndChild(text);
+        parseLine();
+        if (lexemType == lexSemicolon)
+            continue;
+        else
+            break;
     } while (true);
+    return true;
 }
-
-void Parser::programm()
-{
-    printf("\nБлок программы:");
-    composite(program);
-}
-
 bool Parser::isEOF()
 {
     return _isEOF;
 }
-
 void Identifier::toZero()
 {
     this->length = 0;
     strcpy(this->nameID, "\0");
     strcpy(this->valueType, "\0");
 }
-
-void Lexeme::setAll(LexemType _lexemType, char _lexem[], int _dValue, float _fValue)
-{
-    this->lexemType = _lexemType;
-    strcpy(this->lexem, _lexem);
-    this->fValue = 0.0;
-    this->dValue = 0;
-    if (lexemType == lexInt)
+bool Parser::composite(TiXmlNode* node) // lexStart
+{//$ составной = "start" оператор { ";" оператор } "stop".
+    parseLine();
+    lineWithError = line;
+    if (lexemType == lexLabel)
     {
-        strcpy(this->valueType, "int");
-        this->dValue = _dValue;        
-    }
-    else if (lexemType == lexReal)
-    {
-        strcpy(this->valueType, "real");
-        this->fValue = _fValue;
-    }
-}
-
-void Parser::composite(TiXmlNode* node) // на входе start
-{                        //$ составной = "start" оператор { ";" оператор } "stop".
-    do
-    {
-        if (lexemType == lexStop)
-        {
-            lexemType = lexComma;
-            return;
-        }
+        label(node);
         parseLine();
+    }
+    switch (lexemType)
+    {
+    case lexStop: {lexemType = lexComma; return true;}
+    case lexSemicolon: break;
+    case lexRead: { if (!opRead(node)) return false; break;}
+    case lexWrite: { if (!opWrite(node)) return false;  break;}
+    case lexBreak:
+    {
+        /*if (strcmp("while",node->Value()) != 0)
+        {
+            strcpy(whatIsExpected,"you cannot use break here, mischievous boy");
+            return false;
+        }*/
+        if (!isAvaibleForBreak)
+        {
+            strcpy(whatIsExpected,"you cannot use break here, mischievous boy");
+            return false;
+        }
+        opBreak(node);
+        break;
+    }
+    case lexGoto: { if (!opGoto(node)) return false; break;}
+    case lexIf: { if (!opIf(node)) return false; break; }
+    case lexWhile:
+    {
+        isAvaibleForBreak = true;
+        if (!opWhile(node))
+            return false;
+        isAvaibleForBreak = false;
+        break;
+    }
+    case lexLRB: {if (!assignOrCast(node)) return false; break; }
+    case lexId: { if (!opCall(node)) return false; break; }
+    case lexStart:
+    {
+        TiXmlElement* compound = new TiXmlElement("compound");
+        node->LinkEndChild(compound);
+        if (!composite(compound))
+            return false;
+        TiXmlText* text = new TiXmlText("");
+        compound->LinkEndChild(text);
+        break;
+    }
+    default:
+    {
+        strcpy(whatIsExpected,"some operator");
+        return false;
+    }
+    }
+    if (lexemType == lexComma)
+        parseLine();
+    if (lexemType == lexStop)
+        return true;
+    else if (lexemType != lexSemicolon)
+    {
+        strcpy(whatIsExpected,"\";\" or \"stop\"");
+        return false;
+    }
+
+    while (lexemType == lexSemicolon)
+    {
+        parseLine();
+        lineWithError = line;
         if (lexemType == lexLabel)
         {
             label(node);
             parseLine();
         }
-        if (_isEOF)
-            return;
         switch (lexemType)
         {
-            case lexStop: { lexemType = lexComma; return;}
-            case lexSemicolon: { break;}
-            case lexRead: { opRead(node); break;}
-            case lexWrite: { opWrite(node); break;}
-            case lexBreak: { opBreak(node); break;}
-            case lexGoto: { opGoto(node); break;}
-            case lexIf: { opIf(node); break; }
-            case lexWhile: { opWhile(node); break; }
-            case lexLRB: {assignOrCast(node); /*expression(node); */break; }
-            case lexId: { opCall(node); break; }
-            case lexStart:
+        case lexStop: {lexemType = lexComma; break;}
+        case lexSemicolon: continue;
+        case lexRead: { if (!opRead(node)) return false; break;}
+        case lexWrite: { if (!opWrite(node)) return false;  break;}
+        case lexBreak:
+        {
+            /*if (strcmp("while",node->Value()) != 0)
             {
-                TiXmlElement* compound = new TiXmlElement("compound");
-                node->LinkEndChild(compound);
-                composite(compound);
-                TiXmlText* text = new TiXmlText("");
-                compound->LinkEndChild(text);
-                break;
+                strcpy(whatIsExpected,"you cannot use break here, mischievous boy");
+                return false;
+            }*/
+            if (!isAvaibleForBreak)
+            {
+                strcpy(whatIsExpected,"you cannot use break here, mischievous boy");
+                return false;
             }
-            default: { break; }
+            opBreak(node);
+            break;
         }
-    } while (true);
+        case lexGoto: { if (!opGoto(node)) return false; break;}
+        case lexIf: { if (!opIf(node)) return false; break; }
+        case lexWhile:
+        {
+            isAvaibleForBreak = true;
+            if (!opWhile(node))
+                return false;
+            isAvaibleForBreak = false;
+            break;
+        }
+        case lexLRB: {if (!assignOrCast(node)) return false; break; }
+        case lexId: { if (!opCall(node)) return false; break; }
+        case lexStart:
+        {
+            TiXmlElement* compound = new TiXmlElement("compound");
+            node->LinkEndChild(compound);
+            if (!composite(compound))
+                return false;
+            TiXmlText* text = new TiXmlText("");
+            compound->LinkEndChild(text);
+            break;
+        }
+        default:
+        {
+            strcpy(whatIsExpected,"some operator or \";\"");
+            return false;
+        }
+        }
+    }
+    return true;
 }
-
-void Parser::opRead(TiXmlNode* node) //$ ввода = read переменная { "," переменная }.
-{   //lexemType сейчас равен lexRead
+bool Parser::opRead(TiXmlNode* node) //$ ввода = read переменная { "," переменная }.
+{   //lexemType = lexRead
     TiXmlElement* clause = new TiXmlElement("clause");
     node->LinkEndChild(clause);
     TiXmlElement* read = new TiXmlElement("read");
@@ -771,18 +960,51 @@ void Parser::opRead(TiXmlNode* node) //$ ввода = read переменная 
     {
         TiXmlElement* var = new TiXmlElement("var");
         TiXmlText* text = new TiXmlText("");
+        lineWithError = line;
         parseLine(); //Id
+        if (lexemType != lexId)
+        {
+            strcpy(whatIsExpected, "identifier");
+            return false;
+        }
         var->SetAttribute("name", lexem);
         parseLine(); //LSB or Comma
+        if (lexemType == lexId)
+        {
+            strcpy(whatIsExpected, "\",\"");
+            return false;
+        }
         if (lexemType == lexLSB)
         {
             parseLine(); // index
             if (lexemType == lexInt)
+            {
+                if (dValue <= 0 || dValue >= 100)
+                {
+                    strcpy(whatIsExpected, "number more than 0 and less than 100 as the index of array");
+                    return false;
+                }
                 var->SetAttribute("index", dValue);
+            }
             else if (lexemType == lexId)
                 var->SetAttribute("index", lexem);
+            else
+            {
+                strcpy(whatIsExpected, "index");
+                return false;
+            }
+            parseLine();//lexRSB
+            if (lexemType != lexRSB)
+            {
+                strcpy(whatIsExpected, "\"]\"");
+                return false;
+            }
             parseLine();
-            parseLine();
+            if (lexemType == lexId)
+            {
+                strcpy(whatIsExpected, "\",\"");
+                return false;
+            }
         }
         read->LinkEndChild(var);
         var->LinkEndChild(text);
@@ -796,13 +1018,13 @@ void Parser::opRead(TiXmlNode* node) //$ ввода = read переменная 
 
     TiXmlText* textClause = new TiXmlText("");
     clause->LinkEndChild(textClause);
+    return true;
 }
-
-void Parser::opWrite(TiXmlNode* node) //$ вывода = write ( выражение | спецификатор ) { "," ( выражение | спецификатор ) }.
+bool Parser::opWrite(TiXmlNode* node) //$ вывода = write ( выражение | спецификатор ) { "," ( выражение | спецификатор ) }.
 {   //lexemType = lexWrite
+    bool accessesToRead = true;
     TiXmlElement* clause = new TiXmlElement("clause");
     node->LinkEndChild(clause);
-
     TiXmlElement* write = new TiXmlElement("write");
     clause->LinkEndChild(write);
     do
@@ -816,9 +1038,71 @@ void Parser::opWrite(TiXmlNode* node) //$ вывода = write ( выражен�
         }
         else if (lexemType == lexLRB)
         {
-            expression(write);
+            if (!expression(write))
+                return false;
         }
-        parseLine();
+        else if (lexemType == lexId)
+        {
+            TiXmlElement* var = new TiXmlElement("var");
+            var->SetAttribute("name", lexem);
+            write->LinkEndChild(var);
+            parseLine();
+            if (lexemType == lexLSB)
+            {
+                parseLine(); // index
+                if (lexemType == lexInt)
+                {
+                    if (dValue <= 0 || dValue >= 100)
+                    {
+                        strcpy(whatIsExpected, "number more than 0 and less than 100 as the index of array");
+                        return false;
+                    }
+                    var->SetAttribute("index", dValue);
+                }
+                else if (lexemType == lexId)
+                    var->SetAttribute("index", lexem);
+                else
+                {
+                    strcpy(whatIsExpected, "index");
+                    return false;
+                }
+                parseLine();//lexRSB
+                if (lexemType != lexRSB)
+                {
+                    strcpy(whatIsExpected, "\"]\"");
+                    return false;
+                }
+                parseLine();
+                if (lexemType == lexId)
+                {
+                    strcpy(whatIsExpected, "\",\"");
+                    return false;
+                }
+                accessesToRead = false;
+            }
+            else
+                accessesToRead = false;
+        }
+        else if (lexemType == lexInt)
+        {
+            TiXmlElement* _int = new TiXmlElement("int");
+            _int->SetAttribute("val", dValue);
+            write->LinkEndChild(_int);
+        }
+        else if (lexemType == lexReal)
+        {
+            TiXmlElement* _real = new TiXmlElement("real");
+            _real->SetDoubleAttribute("val", fValue);
+            write->LinkEndChild(_real);
+        }
+        else
+        {
+            strcpy(whatIsExpected, "qualifier or expression");
+            return false;
+        }
+        if (accessesToRead)
+            parseLine();
+        accessesToRead = true;
         if (lexemType != lexComma)
             break;
     } while (true);
@@ -826,54 +1110,91 @@ void Parser::opWrite(TiXmlNode* node) //$ вывода = write ( выражен�
     write->LinkEndChild(textWrite);
     TiXmlText* textClause = new TiXmlText("");
     clause->LinkEndChild(textClause);
+    return true;
 }
-
-
-void Parser::opCall(TiXmlNode* node) //$ вызов = идентификатор "(" [ переменная { "," переменная } ] ")".
+bool Parser::opCall(TiXmlNode* node) //$ вызов = идентификатор "(" [ переменная { "," переменная } ] ")".
 { // lexemType = lexId
+    bool wasComma = false;
     TiXmlElement* clause = new TiXmlElement("clause");
     node->LinkEndChild(clause);
-
     TiXmlElement* call = new TiXmlElement("call");
     clause->LinkEndChild(call);
     call->SetAttribute("name", lexem);
     parseLine(); // считали lexLRB
-
+    if (lexemType != lexLRB)
+    {
+        strcpy(whatIsExpected, "\"(\"");
+        return false;
+    }
     do
     {
         TiXmlElement* var = new TiXmlElement("var");
         TiXmlText* text = new TiXmlText("");
         parseLine(); //Id or RRB
+        if (wasComma && lexemType != lexId)
+        {
+            strcpy(whatIsExpected, "identifier");
+            return false;
+        }
         if (lexemType == lexRRB)
             break;
-        //else lexemType is lexId
+        else if (lexemType != lexId)
+        {
+            strcpy(whatIsExpected, "idenifier");
+            return false;
+        }
         var->SetAttribute("name", lexem);
-        parseLine(); //LSB or Comma
+        parseLine(); //LSB or lexComma
         if (lexemType == lexLSB)
         {
             parseLine(); // index
             if (lexemType == lexInt)
+            {
+                if (dValue <= 0 || dValue >= 100)
+                {
+                    strcpy(whatIsExpected, "number more than 0 and less than 100 as the index of array");
+                    return false;
+                }
                 var->SetAttribute("index", dValue);
+            }
             else if (lexemType == lexId)
                 var->SetAttribute("index", lexem);
-            parseLine();
+            else
+            {
+                strcpy(whatIsExpected, "index");
+                return false;
+            }
+            parseLine();//lexRSB
+            if (lexemType != lexRSB)
+            {
+                strcpy(whatIsExpected, "\"]\"");
+                return false;
+            }
             parseLine();
         }
         call->LinkEndChild(var);
         var->LinkEndChild(text);
+        wasComma = false;
         if (lexemType == lexComma)
+        {
+            wasComma = true;
             continue;
+        }
+        else if (lexemType != lexRRB)
+        {
+            strcpy(whatIsExpected, "\")\"");
+            return false;
+        }
         else
             break;
     } while (true);
-
     TiXmlText* textCall = new TiXmlText("");
     call->LinkEndChild(textCall);
-
     TiXmlText* textClause = new TiXmlText("");
     clause->LinkEndChild(textClause);
+    parseLine();
+    return true;
 }
-
 void Parser::opBreak(TiXmlNode* node)
 {
     TiXmlElement* clause = new TiXmlElement("clause");
@@ -886,60 +1207,16 @@ void Parser::opBreak(TiXmlNode* node)
     TiXmlText* textClause = new TiXmlText("");
     clause->LinkEndChild(textClause);
 }
+bool Parser::expression(TiXmlNode* node) //$ выражение = "(" операнд операнд операция ")" | "(" операнд "minus" ")" | операнд .
 
-
-void Parser::expression(TiXmlNode* node) //$ выражение = "(" операнд операнд операция ")" | "(" операнд "minus" ")" | операнд .
 {   //в lexemType lexLRB
-    //$ приведение = "(" переменная переменная cast ")".
-    //$ присваивание = "(" выражение переменная "let" ")".
-    //$ выражение = "(" операнд операнд операция ")" | "(" операнд "minus" ")" | операнд .
-
-    /*static int isCast = 0;
-    static int isLet = 0;
-    parseLine();
-    switch (lexemType)
-    {
-    case lexLRB: isLet++; expression(node); break;
-    case lexId: isCast++; isLet++; printf("\nID"); break;
-    case lexInt: printf("\nInt"); break;
-    case lexReal: printf("\nReal"); break;
-    }
-    parseLine();
-    switch (lexemType)
-    {
-    case lexLRB: expression(node); break;
-    case lexId: isCast++; isLet++; printf("\nID"); break;
-    case lexInt: printf("\nInt"); break;
-    case lexReal: printf("\nReal"); break;
-    case lexMinus: printf("\nminus"); parseLine(); return;
-    }
-    parseLine();
-    switch (lexemType)
-    {
-    case lexEQ: printf("\neq"); break;
-    case lexGE: printf("\nge"); break;
-    case lexGT: printf("\ngt"); break;
-    case lexLE: printf("\nle"); break;
-    case lexLT: printf("\nlt"); break;
-    case lexPlus: printf("\nplus"); break;
-    case lexMinus: printf("\nminus"); break;
-    case lexDiv: printf("\ndiv"); break;
-    case lexMod: printf("\nmod"); break;
-    case lexMult: printf("\nmult"); break;
-  //  case lexCast: isCast; if (isCast == 3) opCast(); parseLine(); return;
-//    case lexLet: isLet++; if (isLet == 3) opLet(); parseLine(); return;
-    }
-    parseLine();//считали lexRRB
-    return;
-
-    */
     static bool accessesToRead = true;
     TiXmlElement* expr = new TiXmlElement("expr");
     parseLine(); //lexLRB or lexInt or lexReal or lexId
     TiXmlElement* op = new TiXmlElement("op");
     switch (lexemType)
     {
-        case lexLRB: expression(op); break;
+        case lexLRB: if (!expression(op)) return false; break;
         case lexId:
         {
             TiXmlElement* var = new TiXmlElement("var");
@@ -948,9 +1225,29 @@ void Parser::expression(TiXmlNode* node) //$ выражение = "(" опера
             parseLine();
             if (lexemType == lexLSB)
             {
-                parseLine();  //lexInt
-                var->SetAttribute("index", dValue);
+                parseLine(); // index
+                if (lexemType == lexInt)
+                {
+                    if (dValue <= 0 || dValue >= 100)
+                    {
+                        strcpy(whatIsExpected, "number more than 0 and less than 100 as the index of array");
+                        return false;
+                    }
+                    var->SetAttribute("index", dValue);
+                }
+                else if (lexemType == lexId)
+                    var->SetAttribute("index", lexem);
+                else
+                {
+                    strcpy(whatIsExpected, "index");
+                    return false;
+                }
                 parseLine();//lexRSB
+                if (lexemType != lexRSB)
+                {
+                    strcpy(whatIsExpected, "\"]\"");
+                    return false;
+                }
             }
             else
                 accessesToRead = false;
@@ -970,6 +1267,11 @@ void Parser::expression(TiXmlNode* node) //$ выражение = "(" опера
             op->LinkEndChild(_real);
             break;
         }
+    default:
+    {
+        strcpy(whatIsExpected, "nyan expression ^_^");
+        return false;
+    }
     }
 
     if (accessesToRead)
@@ -978,7 +1280,7 @@ void Parser::expression(TiXmlNode* node) //$ выражение = "(" опера
 
     switch (lexemType)
     {
-        case lexLRB: expression(op); break;
+        case lexLRB: if (!expression(op)) return false; break;
         case lexId:
         {
             TiXmlElement* var = new TiXmlElement("var");
@@ -987,9 +1289,29 @@ void Parser::expression(TiXmlNode* node) //$ выражение = "(" опера
             parseLine();
             if (lexemType == lexLSB)
             {
-                parseLine();
-                var->SetAttribute("index", dValue);
-                parseLine();
+                parseLine(); // index
+                if (lexemType == lexInt)
+                {
+                    if (dValue <= 0 || dValue >= 100)
+                    {
+                        strcpy(whatIsExpected, "number more than 0 and less than 100 as the index of array");
+                        return false;
+                    }
+                    var->SetAttribute("index", dValue);
+                }
+                else if (lexemType == lexId)
+                    var->SetAttribute("index", lexem);
+                else
+                {
+                    strcpy(whatIsExpected, "index");
+                    return false;
+                }
+                parseLine();//lexRSB
+                if (lexemType != lexRSB)
+                {
+                    strcpy(whatIsExpected, "\"]\"");
+                    return false;
+                }
             }
             else
                 accessesToRead = false;
@@ -1015,7 +1337,12 @@ void Parser::expression(TiXmlNode* node) //$ выражение = "(" опера
             expr->LinkEndChild(op);
             node->LinkEndChild(expr);
             parseLine();
-            return;
+            return true;
+        }
+        default:
+        {
+            strcpy(whatIsExpected, "nyan expression ^_^");
+            return false;
         }
     }
     if (accessesToRead)
@@ -1023,302 +1350,442 @@ void Parser::expression(TiXmlNode* node) //$ выражение = "(" опера
     accessesToRead = true;
     if (lexemType == lexEQ || lexemType == lexGE || lexemType == lexGT || lexemType == lexLE
             || lexemType == lexLT || lexemType == lexPlus || lexemType == lexMinus
-            || lexemType == lexDiv || lexemType == lexMod || lexemType == lexMult)
+            || lexemType == lexDiv || lexemType == lexMod || lexemType == lexMult
+            || lexemType == lexNE)
     {
         op->SetAttribute("kind", lexem);
         expr->LinkEndChild(op);
         node->LinkEndChild(expr);
     }
+    else
+        {
+            strcpy(whatIsExpected, "nyan expression ^_^");
+            parseLine();
+            return false;
+        }
     parseLine();
-    return;
+    return true;
 }
-
-
-void Parser::opGoto(TiXmlNode* node) //goto имя_метки.
-{   //в lexemType lexGoto
+bool Parser::opGoto(TiXmlNode* node) //goto имя_метки.
+{   //lexemType = lexGoto
     TiXmlElement* clause = new TiXmlElement("clause");
     node->LinkEndChild(clause);
     TiXmlElement* opGoto = new TiXmlElement("goto");
     clause->LinkEndChild(opGoto);
     parseLine(); //lexInt
+    if (lexemType != lexInt)
+    {
+        strcpy(whatIsExpected, "label name");
+        return false;
+    }
     opGoto->SetAttribute("name", lexem);
     parseLine(); //lexSemicolon or lexStop
     TiXmlText* textGoto = new TiXmlText("");
     opGoto->LinkEndChild(textGoto);
     TiXmlText* textClause = new TiXmlText("");
     clause->LinkEndChild(textClause);
+    return true;
 }
+bool Parser::opIf(TiXmlNode* node)    // lexemType = lexIf
+{ //$ условный = if выражение then непомеченный [ else непомеченный ].
+    bool accessesToRead = true;
+    TiXmlElement* clause = new TiXmlElement("clause");
+    TiXmlElement* _if = new TiXmlElement("if");
+    clause->LinkEndChild(_if);
 
-void Parser::opIf(TiXmlNode* node) //$ условный = if выражение then непомеченный [ else непомеченный ].
-{                   // lexemType = lexIf
-    parseLine(); //считали lexLRB либо lexInt, lexReal, lexId
+    parseLine(); //lexLRB or lexInt, lexReal, lexId
     if (lexemType == lexLRB)
-        expression(node);
-
-    parseLine(); //считали lexThen либо другое
-    if (lexemType == lexThen)
     {
-        parseLine();
-        unmarked(node);
+        if (!expression(_if))
+            return false;
     }
-    parseLine();
-    if (lexemType == lexElse)
-    {
-        parseLine();
-        unmarked(node);
-    }
-}
-
-void Parser::unmarked(TiXmlNode* node)
-{
-    switch (lexemType)
-    {
-    case lexSemicolon: break;
-    case lexRead: opRead(node); break; // быстро
-    case lexWrite: opWrite(node); break; // быстро
-    case lexBreak: opBreak(node); break;
-    case lexGoto: opGoto(node); break;
-    case lexIf: opIf(node); break;
-    case lexWhile: opWhile(node); break;
-    case lexLRB: expression(node); break;
-    case lexId: opCall(node); break;
-    }
-}
-
-
-void Parser::opWhile(TiXmlNode* node) //$ цикла = while выражение do оператор { ";" оператор } end.
-{                // lexemType = lexWhile
-    parseLine(); //считали lexLRB либо lexInt, lexReal, lexId
-    if (lexemType == lexLRB)
-        expression(node);
     else if (lexemType == lexInt)
     {
+        TiXmlElement* _int = new TiXmlElement("int");
+        _if->LinkEndChild(_int);
+        _int->SetAttribute("val", dValue);
     }
     else if (lexemType == lexReal)
     {
+        TiXmlElement* _real = new TiXmlElement("real");
+        _if->LinkEndChild(_real);
+        _real->SetDoubleAttribute("val", fValue);
     }
     else if (lexemType == lexId)
     {
-    }
-    parseLine(); //считали lexDo
-    do
-    {
-        parseLine(); //считали lexLabel либо оператор..
-        if (lexemType == lexLabel)
+        TiXmlElement* var = new TiXmlElement("var");
+        _if->LinkEndChild(var);
+        var->SetAttribute("name", lexem);
+        parseLine();
+        if (lexemType == lexLSB)
         {
-
+            parseLine(); // index
+            if (lexemType == lexInt)
+            {
+                if (dValue <= 0 || dValue >= 100)
+                {
+                    strcpy(whatIsExpected, "number more than 0 and less than 100 as the index of array");
+                    return false;
+                }
+                var->SetAttribute("index", dValue);
+            }
+            else if (lexemType == lexId)
+                var->SetAttribute("index", lexem);
+            else
+            {
+                strcpy(whatIsExpected, "index");
+                return false;
+            }
+            parseLine();//lexRSB
+            if (lexemType != lexRSB)
+            {
+                strcpy(whatIsExpected, "\"]\"");
+                return false;
+            }
         }
         else
-            unmarked(node);
-        if (lexemType == lexEnd)
-            break;
-    } while (true);
-}
-
-
-void Parser::assignOrCast(TiXmlNode* node) //$ выражение = "(" операнд операнд операция ")" | "(" операнд "minus" ")" | операнд .
-{   //в lexemType lexLRB
-    //$ приведение = "(" переменная переменная cast ")".
-    //$ присваивание = "(" выражение переменная "let" ")".
-    //$ выражение = "(" операнд операнд операция ")" | "(" операнд "minus" ")" | операнд.
-    static std::vector <Lexeme> lexems;
-    static bool dontAttent = false;
-    static Lexeme lex;
-    static bool accessesToRead = true;    
-    TiXmlElement* expr = new TiXmlElement("expr");
-    if (!dontAttent)
-    {
-        lex.setAll(lexemType, lexem, dValue, fValue);
-        lexems.push_back(lex);
-        dontAttent = true;
+            accessesToRead = false;
     }
-    parseSetPush(&lexems, lex);
-    TiXmlElement* op = new TiXmlElement("op");    
-    switch (lexemType)
+    else
     {
-        case lexLRB: assignOrCast(op); break;
-        case lexId:
-        {
-            printf("\nID");
-            TiXmlElement* var = new TiXmlElement("var");
-            var->SetAttribute("name", lexem);
-            op->LinkEndChild(var);
-            parseSetPush(&lexems, lex);
-            if (lexemType == lexLSB)
-            {
-                parseSetPush(&lexems, lex);
-                var->SetAttribute("index", dValue);
-                parseSetPush(&lexems, lex);
-            }
-            else
-                accessesToRead = false;
-            break;
-        }
-        case lexInt:
-        {
-            printf("\nInt");
-            TiXmlElement* _int = new TiXmlElement("int");
-            _int->SetAttribute("val", dValue);
-            op->LinkEndChild(_int);
-            break;
-        }
-        case lexReal:
-        {
-            printf("\nReal");
-            TiXmlElement* _real = new TiXmlElement("real");
-            _real->SetDoubleAttribute("val", fValue);
-            op->LinkEndChild(_real);
-            break;
-        }
+        strcpy(whatIsExpected, "expression");
+        return false;
     }
 
     if (accessesToRead)
-        parseSetPush(&lexems, lex);
-    accessesToRead = true;
-
-    switch (lexemType)
+        parseLine(); //lexThen or lexElse
+    if (lexemType != lexThen && lexemType != lexElse)
     {
-        case lexLRB: assignOrCast(op); break;
-        case lexId:
+        strcpy(whatIsExpected, "then or else");
+        return false;
+    }
+    if (lexemType == lexThen)
+    {
+        TiXmlElement* _then = new TiXmlElement("then");
+        _if->LinkEndChild(_then);
+        parseLine();
+        if (!unmarked(_then))
         {
-            TiXmlElement* var = new TiXmlElement("var");
-            var->SetAttribute("name", lexem);
-            op->LinkEndChild(var);
-            printf("\nID");
-            parseSetPush(&lexems, lex);
-            if (lexemType == lexLSB)
+            if (lexemType != lexElse && lexemType != lexStop)
+                return false;
+        }
+        /*if (lexemType == lexSemicolon)
+            parseLine();*/
+    }
+    if (lexemType == lexElse)
+    {
+        TiXmlElement* _else = new TiXmlElement("else");
+        _if->LinkEndChild(_else);
+        parseLine();
+        if (!unmarked(_else))
+        {
+            if (lexemType == lexElse)
             {
-                parseSetPush(&lexems, lex);
-                var->SetAttribute("index", dValue);
-                parseSetPush(&lexems, lex);
+                node->LinkEndChild(clause);
+                return true;
             }
-            else
-                accessesToRead = false;
-            break;
-        }
-        case lexInt:
-        {
-            printf("\nInt");
-            TiXmlElement* _int = new TiXmlElement("int");
-            _int->SetAttribute("val", dValue);
-            op->LinkEndChild(_int);
-            break;
-        }
-        case lexReal:
-        {
-            printf("\nReal");
-            TiXmlElement* _real = new TiXmlElement("real");
-            _real->SetDoubleAttribute("val", fValue);
-            op->LinkEndChild(_real);
-            break;
-        }
-        case lexMinus:
-        {
-            printf("\nminus");
-            op->SetAttribute("kind", lexem);
-            expr->LinkEndChild(op);
-            node->LinkEndChild(expr);
-            parseSetPush(&lexems, lex);
-            return;
+            if (lexemType != lexStop)
+                return false;
         }
     }
-    if (accessesToRead)
-        parseSetPush(&lexems, lex);
-    accessesToRead = true;
-    if (lexemType == lexEQ || lexemType == lexGE || lexemType == lexGT || lexemType == lexLE
-            || lexemType == lexLT || lexemType == lexPlus || lexemType == lexMinus
-            || lexemType == lexDiv || lexemType == lexMod || lexemType == lexMult)
-    {
-        op->SetAttribute("kind", lexem);
-        expr->LinkEndChild(op);
-        node->LinkEndChild(expr);
-    }
-    else if (lexemType == lexCast)
-    {
-        parseSetPush(&lexems, lex);
-        opCast(&lexems, node);
-        return;
-    }
-    else if (lexemType == lexLet)
-    {
-        parseSetPush(&lexems, lex);
-        opAssign(&lexems, node);
-        return;
-    }
-    parseSetPush(&lexems, lex);
-    return;
-}
-
-
-void Parser::parseSetPush(std::vector<Lexeme>* lexs, Lexeme _lex)
-{
-    parseLine();
-    _lex.setAll(lexemType, lexem, dValue, fValue);
-    lexs->push_back(_lex);
-}
-
-
-bool Parser::opCast(std::vector<Lexeme>* lexs, TiXmlNode* node)
-{ //$ приведение = "(" переменная переменная cast ")".
-    TiXmlElement* clause = new TiXmlElement("clause");
     node->LinkEndChild(clause);
-    TiXmlElement* cast = new TiXmlElement("cast");
-    clause->LinkEndChild(cast);
-
-    std::vector<Lexeme>::iterator it;
-    it = lexs->begin();
-    it++; //lexId
-    TiXmlElement* var = new TiXmlElement("var");
-    var->SetAttribute("name", (*it).lexem);
-    cast->LinkEndChild(var);
-    it++; //lexId or lexLSB
-    if ((*it).lexemType == lexLSB)
+    return true;
+}
+bool Parser::unmarked(TiXmlNode* node)
+{
+    switch (lexemType)
     {
-        it++;
-        var->SetAttribute("index", (*it).dValue);
-        it++; //lexRSB
-        it++; //lexId
+    case lexSemicolon: return true;
+    case lexRead: if (!opRead(node)) return false; break; // быстро
+    case lexWrite: if (!opWrite(node)) return false; break; // быстро
+    case lexBreak:
+    {
+        if (!isAvaibleForBreak)
+        {
+            strcpy(whatIsExpected,"you cannot use break here, mischievous boy");
+            return false;
+        }
+        opBreak(node);
+        break;
     }
-    if ((*it).lexemType == lexId)
+
+    case lexGoto: if (!opGoto(node)) return false; break;
+    case lexIf: if (!opIf(node)) return false; break;
+    case lexWhile:
+    {
+        isAvaibleForBreak = true;
+        if (!opWhile(node))
+        {
+            isAvaibleForBreak = false;
+            return false;
+        }
+        break;
+    }
+    case lexLRB: assignOrCast(node); break;
+    case lexId: opCall(node); break;
+    case lexStart:
+    {
+        TiXmlElement* compound = new TiXmlElement("compound");
+        node->LinkEndChild(compound);
+        if (!composite(compound))
+            return false;
+        TiXmlText* text = new TiXmlText("");
+        compound->LinkEndChild(text);
+        break;
+    }
+    default:
+    {
+        strcpy(whatIsExpected,"some operator");
+        return false;
+    }
+    }
+    return true;
+}
+bool Parser::opWhile(TiXmlNode* node) //$ цикла = while выражение do оператор { ";" оператор } end.
+{                // lexemType = lexWhile
+    bool accessesToRead = true;
+    TiXmlElement* clause = new TiXmlElement("clause");
+    TiXmlElement* _while = new TiXmlElement("while");
+    clause->LinkEndChild(_while);
+    parseLine(); //lexLRB or lexInt, lexReal, lexId
+    if (lexemType == lexLRB)
+    {
+        if (!expression(_while))
+        {
+            strcpy(whatIsExpected, "expression");
+            return false;
+        }
+    }
+    else if (lexemType == lexId)
     {
         TiXmlElement* var = new TiXmlElement("var");
-        cast->LinkEndChild(var);
-        var->SetAttribute("name", (*it).lexem);
-        it++; //lexCast or lexLSB
-        if ((*it).lexemType == lexLSB)
+        var->SetAttribute("name", lexem);
+        _while->LinkEndChild(var);
+        parseLine();
+        if (lexemType == lexLSB)
         {
-            it++;
-            var->SetAttribute("index", (*it).dValue);
+            parseLine(); // index
+            if (lexemType == lexInt)
+            {
+                if (dValue <= 0 || dValue >= 100)
+                {
+                    strcpy(whatIsExpected, "number more than 0 and less than 100 as the index of array");
+                    return false;
+                }
+                var->SetAttribute("index", dValue);
+            }
+            else if (lexemType == lexId)
+                var->SetAttribute("index", lexem);
+            else
+            {
+                strcpy(whatIsExpected, "index");
+                return false;
+            }
+            parseLine();//lexRSB
+            if (lexemType != lexRSB)
+            {
+                strcpy(whatIsExpected, "\"]\"");
+                return false;
+            }
+        }
+        else
+            accessesToRead = false;
+    }
+    else if (lexemType == lexInt)
+    {
+        TiXmlElement* _int = new TiXmlElement("int");
+        _int->SetAttribute("val", dValue);
+        _while->LinkEndChild(_int);
+    }
+    else if (lexemType == lexReal)
+    {
+        TiXmlElement* _real = new TiXmlElement("real");
+        _real->SetDoubleAttribute("val", fValue);
+        _while->LinkEndChild(_real);
+    }
+    else
+    {
+        strcpy(whatIsExpected, "expression or some value");
+        return false;
+    }
+    if (accessesToRead)
+        parseLine(); //lexDo
+    accessesToRead = true;
+    lineWithError = line;
+    bool exceptNewOperator = true;
+    do
+    {
+        if (!exceptNewOperator)
+        {
+            strcpy(whatIsExpected, "\";\"");
+            return false;
+        }
+        parseLine(); //lexLabel либо оператор..
+        lineWithError = line;
+        if (lexemType == lexLabel)
+        {
+            label(_while);
+            continue;
+        }
+        else if (lexemType == lexEnd)
+        {
+            break;
+        }
+        else
+        {
+            if (!unmarked(_while))
+            {
+                strcpy(whatIsExpected, "some operator");
+                return false;
+            }
+            else //if (lexemType == lexStop)
+                parseLine();
+        }
+        lineWithError = line;
+        exceptNewOperator = false;
+        if (lexemType == lexSemicolon)
+        {
+            exceptNewOperator = true;
+            continue;
+        }
+        else if (lexemType == lexEnd)
+            break;
+        else
+        {
+            strcpy(whatIsExpected, "\";\" or end");
+            return false;
+        }
+    } while (true);
+    node->LinkEndChild(clause);
+    parseLine();
+    return true;
+}
+bool Parser::assignOrCast(TiXmlNode* node)
+{   //в lexemType lexLRB
+    bool isCast = true, isAssign = true, accessesToRead = true;
+    TiXmlElement* clause = new TiXmlElement("clause");
+    TiXmlElement* assign = new TiXmlElement("assign");
+    TiXmlElement* cast = new TiXmlElement("cast");
+    parseLine();
+    switch (lexemType)
+    {
+        case lexLRB:
+        {
+            if (!expression(assign))
+                return false;
+            isCast = false;
+            break;
+        }
+        case lexId:
+        {
+            TiXmlElement* var = new TiXmlElement("var");
+            var->SetAttribute("name", lexem);
+            assign->LinkEndChild(var);
+            parseLine();
+            if (lexemType == lexLSB)
+            {
+                parseLine(); // index
+                if (lexemType == lexInt)
+                {
+                    if (dValue <= 0 || dValue >= 100)
+                    {
+                        strcpy(whatIsExpected, "number more than 0 and less than 100 as the index of array");
+                        return false;
+                    }
+                    var->SetAttribute("index", dValue);
+                }
+                else if (lexemType == lexId)
+                    var->SetAttribute("index", lexem);
+                else
+                {
+                    strcpy(whatIsExpected, "index");
+                    return false;
+                }
+                parseLine();//lexRSB
+                if (lexemType != lexRSB)
+                {
+                    strcpy(whatIsExpected, "\"]\"");
+                    return false;
+                }
+                parseLine();
+                /*if (lexemType == lexId)
+                {
+                    strcpy(whatIsExpected, "\",\"");
+                    return false;
+                }*/
+                accessesToRead = false;
+            }
+            else
+                accessesToRead = false;
+            cast->LinkEndChild(var->Clone());
+            break;
+        }
+        case lexInt:
+        {
+            TiXmlElement* _int = new TiXmlElement("int");
+            _int->SetAttribute("val", dValue);
+            assign->LinkEndChild(_int);
+            isCast = false;
+            break;
+        }
+        case lexReal:
+        {
+            TiXmlElement* _real = new TiXmlElement("real");
+            _real->SetDoubleAttribute("val", fValue);
+            assign->LinkEndChild(_real);
+            isCast = false;
+            break;
+        }
+        default:
+        {
+            strcpy(whatIsExpected,"expression or some value");
+            return false;
         }
     }
-    TiXmlText* textCast = new TiXmlText("");
-    cast->LinkEndChild(textCast);
-    TiXmlText* textClause = new TiXmlText("");
-    clause->LinkEndChild(textClause);
-}
-
-bool Parser::opAssign(std::vector<Lexeme> *lexs, TiXmlNode* node)
-{
-    TiXmlElement* clause = new TiXmlElement("clause");
-    node->LinkEndChild(clause);
-    TiXmlElement* assign = new TiXmlElement("assign");
-    clause->LinkEndChild(assign);
-
-    std::vector<Lexeme>::iterator it;
-    printf("\n ");
-    for (it = lexs->begin(); it < lexs->end(); it++)
+    if (accessesToRead)
+        parseLine(); // lexId
+    accessesToRead = true;
+    if (lexemType == lexId)
     {
-        printf("%s ", (*it).lexem);
+        TiXmlElement* var = new TiXmlElement("var");
+        var->SetAttribute("name", lexem);
+        assign->LinkEndChild(var);
+        parseLine();
+        if (lexemType == lexLSB)
+        {
+            parseLine();
+            var->SetAttribute("index", dValue);
+            parseLine();
+        }
+        else
+            accessesToRead = false;
+        cast->LinkEndChild(var->Clone());
     }
-
-    TiXmlText* textAssign = new TiXmlText("");
-    assign->LinkEndChild(textAssign);
-    TiXmlText* textClause = new TiXmlText("");
-    clause->LinkEndChild(textClause);
+    else
+    {
+        isCast = false;
+        isAssign = false;
+         strcpy(whatIsExpected,"expression or some value");
+         return false;
+    }
+    if (accessesToRead)
+        parseLine(); // lexCast or lexLet
+    if (lexemType == lexLet && isAssign)
+        clause->LinkEndChild(assign);
+    else if (lexemType == lexCast && isCast)
+        clause->LinkEndChild(cast);
+    node->LinkEndChild(clause);
+    parseLine(); //lexRRB
+    if (lexemType != lexRRB)
+    {
+        strcpy(whatIsExpected,"\")\"");
+        return false;
+    }
+    parseLine(); //lexSemicolon or smth else
+    return true;
 }
-
 void Parser::label(TiXmlNode *node)
-{    
+{
     TiXmlElement* label = new TiXmlElement("label");
     node->LinkEndChild(label);
     label->SetAttribute("name", lexem);
